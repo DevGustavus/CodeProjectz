@@ -12,11 +12,14 @@ function ViewScreen() {
     const navigate = useNavigate();
     const { artigoID } = useParams();
     const [articleData, setArticleData] = useState(null);
-    const [markdownString, setMarkdownString] = useState('');
+    const [imageData, setImageData] = useState(null);
+    const [markdownString, setMarkdownString] = useState(null);
+    const [markdownData, setMarkdownData] = useState(null);
     const [summary, setSummary] = useState('');
     const [question, setQuestion] = useState('');
     const [answer, setAnswer] = useState('');
     const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false); // Estado para exibir o spinner
 
     const token = TokenJWT();
 
@@ -32,7 +35,8 @@ function ViewScreen() {
             );
             if (response.data) {
                 setArticleData(response.data);
-                setMarkdownString(response.data.conteudo.textoMarkdown);
+                fetchContentData(response.data.conteudo.conteudoID, setMarkdownData);
+                fetchContentData(response.data.imagem.conteudoID, setImageData);
             }
         } catch (error) {
             setError('Erro ao buscar dados do artigo.');
@@ -40,25 +44,62 @@ function ViewScreen() {
         }
     };
 
+    const fetchContentData = async (conteudoID, setter) => {
+        try {
+            const response = await axios.get(
+                `${ambiente.localHost}/conteudo/id/${conteudoID}`, 
+                {
+                    headers: { Authorization: `Bearer ${token}` },
+                    responseType: 'blob',
+                }
+            );
+            const url = URL.createObjectURL(response.data);
+            setter(url);
+        } catch (error) {
+            setError('Erro ao buscar conteúdo relacionado.');
+            console.error('Erro ao buscar conteúdo:', error);
+        }
+    };
+
+    useEffect(() => {
+        if (markdownData) {
+            fetch(markdownData)
+                .then((res) => res.text())
+                .then((text) => setMarkdownString(text))
+                .catch((error) => {
+                    setError('Erro ao carregar o conteúdo Markdown.');
+                    console.error('Erro ao carregar Markdown:', error);
+                });
+        }
+    }, [markdownData]);
+
     const summarizeArticle = async () => {
+        setLoading(true); // Ativa o spinner
         try {
             const result = await window.model.generateContent(markdownString);
             const response = await result.response.text();
             setSummary(response);
         } catch (error) {
-            console.error('Error summarizing:', error);
+            console.error('Erro ao resumir o artigo:', error);
             setSummary('Erro ao resumir o artigo.');
+        } finally {
+            setLoading(false); // Desativa o spinner
         }
     };
 
     const askQuestion = async () => {
+        setLoading(true); // Ativa o spinner
         try {
-            const result = await window.model.generateContent(`${markdownString}\nPergunta: ${question}`);
+            const result = await window.model.generateContent(
+                `${markdownString}\nPergunta: ${question}`
+            );
             const response = await result.response.text();
             setAnswer(response);
         } catch (error) {
-            console.error('Error answering question:', error);
+            console.error('Erro ao obter resposta:', error);
             setAnswer('Erro ao obter uma resposta da IA.');
+        } finally {
+            setLoading(false); // Desativa o spinner
         }
     };
 
@@ -68,16 +109,43 @@ function ViewScreen() {
     return (
         <div className="article-screen">
             <div className="article-container">
-                <button type="button" onClick={() => navigate('/home')}>Voltar</button>
+                <div className="botao">
+                    <button type="button" onClick={() => navigate('/home')}>
+                        Voltar
+                    </button>
+                </div>
+
+                {imageData && (
+                    <img
+                        className="article-image"
+                        src={imageData}
+                        alt="Article visual content"
+                    />
+                )}
+
+                <div className="line"></div>
                 <h1 className="article-title">{articleData.titulo}</h1>
-                <ReactMarkdown 
-                    children={markdownString} 
-                    remarkPlugins={[remarkGfm]} 
-                    rehypePlugins={[rehypeRaw]} 
+                <p className="article-content">{articleData.descricao}</p>
+
+                <div className="caixa">
+                    <p className="article-category">
+                        Categoria: {articleData.categoria.nome}
+                    </p>
+                    <p className="article-instructor">
+                        Criado por: {articleData.criador.nome}
+                    </p>
+                </div>
+
+                <div className="line"></div>
+                <ReactMarkdown
+                    children={markdownString}
+                    remarkPlugins={[remarkGfm]}
+                    rehypePlugins={[rehypeRaw]}
                 />
 
                 <div className="ai-features">
                     <button onClick={summarizeArticle}>Resumir Artigo</button>
+                    {loading && <p>Carregando...</p>}
                     <p>Resumo:</p>
                     <ReactMarkdown>{summary}</ReactMarkdown>
 
@@ -88,6 +156,7 @@ function ViewScreen() {
                         onChange={(e) => setQuestion(e.target.value)}
                     />
                     <button onClick={askQuestion}>Perguntar</button>
+                    {loading && <p>Carregando...</p>}
                     <p>Resposta:</p>
                     <ReactMarkdown>{answer}</ReactMarkdown>
                 </div>
